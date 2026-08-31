@@ -1,25 +1,49 @@
-local function open_nvim_tree(data)
-  local directory = vim.fn.isdirectory(data.file) == 1
-  if not directory or #vim.api.nvim_list_bufs() > 1 then
-    return
-  end
-  require("nvim-tree.api").tree.toggle(false, true)
-end
-
-vim.api.nvim_create_autocmd({ "VimEnter" }, { callback = open_nvim_tree })
-
 return {
   {
     "github/copilot.vim",
     lazy = false,
     init = function()
-      -- free up <Tab> for nvim-cmp / snippets; accept Copilot with <C-l>
+      -- keep copilot's native <Tab> map off; nvim-cmp owns <Tab> and accepts the
+      -- suggestion from there (see the nvim-cmp spec below). <C-l> force-accepts
+      -- even when the cmp menu is open
       vim.g.copilot_no_tab_map = true
       vim.keymap.set("i", "<C-l>", 'copilot#Accept("\\<CR>")', {
         expr = true,
         replace_keycodes = false,
         desc = "Copilot accept",
       })
+    end,
+  },
+
+  {
+    -- <C-n>/<C-p> drive the completion menu, so <Tab> is free to accept Copilot.
+    -- override NvChad's default cmp <Tab>/<S-Tab> (which selected menu items) to
+    -- drop menu navigation and make <Tab> accept Copilot's ghost-text suggestion,
+    -- falling back to snippet expand/jump, then a literal tab
+    "hrsh7th/nvim-cmp",
+    opts = function(_, opts)
+      local cmp = require "cmp"
+      local luasnip = require "luasnip"
+
+      opts.mapping["<Tab>"] = cmp.mapping(function(fallback)
+        if vim.fn["copilot#GetDisplayedSuggestion"]().text ~= "" then
+          vim.api.nvim_feedkeys(vim.fn["copilot#Accept"] "", "i", true)
+        elseif luasnip.expand_or_jumpable() then
+          luasnip.expand_or_jump()
+        else
+          fallback()
+        end
+      end, { "i", "s" })
+
+      opts.mapping["<S-Tab>"] = cmp.mapping(function(fallback)
+        if luasnip.jumpable(-1) then
+          luasnip.jump(-1)
+        else
+          fallback()
+        end
+      end, { "i", "s" })
+
+      return opts
     end,
   },
   {
